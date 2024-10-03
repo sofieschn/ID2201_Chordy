@@ -5,6 +5,9 @@
 
 node(Id, Predecessor, Successor) ->
     receive
+        stabilize ->
+            stabilize(Successor),
+            node(Id, Predecessor, Successor);
         {key, Qref, Peer} ->
             Peer ! {Qref, Id},
             node(Id, Predecessor, Successor);
@@ -25,7 +28,7 @@ node(Id, Predecessor, Successor) ->
 
 
 % we handle the order of the chord ring. the function checks if the node is in the right spot in the ring, based on the other nodes in the 
-% ring and their keys. 
+% ring and their keys. This function is done at regular intervals to make sure that the chord ring is up to date. 
 
     stabilize(Pred, Id, Successor) ->
         % Destructure the Successor tuple to get its Key (Skey) and Process ID (Spid)
@@ -70,3 +73,45 @@ node(Id, Predecessor, Successor) ->
                 end
         end.
     
+
+% schedule_stabilize/0 sets up a timer to call the stabilize procedure every 1000 ms
+schedule_stabilize() ->
+    timer:send_interval(1000, self(), stabilize).
+
+% stabilize/1 sends a request message to the current successor to request its predecessor
+stabilize({_, Spid}) ->
+    % Ask the successor for its predecessor by sending the {request, self()} message
+    Spid ! {request, self()}.
+    
+
+
+request(Peer, Predecessor) ->
+    case Predecessor of
+        nil ->
+            Peer ! {status, nil};
+        {Pkey, Ppid} ->
+            Peer ! {status, {Pkey, Ppid}}
+end.
+
+
+notify({Nkey, Npid}, Id, Predecessor) ->
+    case Predecessor of
+        % If there is no predecessor, accept the new node as the predecessor
+        nil ->
+            Npid ! {accepted, Id},
+            {Nkey, Npid};
+        
+        % If the predecessor is already set, check if the new node should be the predecessor
+        {Pkey, _} ->
+            case key:between(Nkey, Pkey, Id) of
+                % If the new node's key fits between the predecessor and us, accept it as the new predecessor
+                true ->
+                    Npid ! {accepted, Id},
+                    {Nkey, Npid};
+                
+                % Otherwise, keep the current predecessor and inform the new node it was not accepted
+                false ->
+                    Npid ! {rejected, Id},
+                    Predecessor
+            end
+    end.
