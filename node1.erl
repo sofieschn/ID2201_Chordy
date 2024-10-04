@@ -9,17 +9,36 @@ start(Id, Peer) ->
     timer:start(),
     spawn(fun() -> init(Id, Peer) end).
 
+connect(Id, nil) ->
+    % If there is no peer, we are the first node, so we are our own successor
+    {ok, {Id, self()}};
 
-    init(Id, Peer) ->
-        % Set the predecessor to nil since we don't know it yet
-        Predecessor = nil,
-        % Connect to a peer (or initialize as the first node)
-        {ok, Successor} = connect(Id, Peer),
-        % Schedule the stabilization procedure
-        schedule_stabilize(),
-        % Start the node's main message-handling loop
-        node(Id, Predecessor, Successor).
+    connect(Id, Peer) ->
+        Qref = make_ref(),  % Generate a unique reference
+        Peer ! {key, Qref, self()},  % Send a message to the peer asking for its key
+        receive
+            % Handle the case when we receive a reply with the same reference
+            {Qref, Skey} ->
+                {ok, {Skey, Peer}};
+            % If no response is received within 10 seconds, handle timeout
+            after 10000 -> 
+                io:format("Timeout: no response~n", []),
+                {error, timeout}
+        end.
     
+
+
+
+init(Id, Peer) ->
+    % Set the predecessor to nil since we don't know it yet
+    Predecessor = nil,
+    % Connect to a peer (or initialize as the first node)
+    {ok, Successor} = connect(Id, Peer),
+    % Schedule the stabilization procedure
+    schedule_stabilize(),
+    % Start the node's main message-handling loop
+    node(Id, Predecessor, Successor).
+
 
 
 
