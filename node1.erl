@@ -1,5 +1,5 @@
 -module(node1).
--export([]).
+-export([connect/2]).
 
 start(Id) ->
     start(Id, nil).
@@ -13,20 +13,19 @@ connect(Id, nil) ->
     % If there is no peer, we are the first node, so we are our own successor
     {ok, {Id, self()}};
 
-    connect(Id, Peer) ->
-        Qref = make_ref(),  % Generate a unique reference
-        Peer ! {key, Qref, self()},  % Send a message to the peer asking for its key
-        receive
-            % Handle the case when we receive a reply with the same reference
-            {Qref, Skey} ->
-                {ok, {Skey, Peer}};
-            % If no response is received within 10 seconds, handle timeout
-            after 10000 -> 
-                io:format("Timeout: no response~n", []),
-                {error, timeout}
-        end.
-    
+connect(Id, Peer) ->
+    Qref = make_ref(),  % Generate a unique reference
+    Peer ! {key, Qref, self()},  % Send a message to the peer asking for its key
+    receive
+        % Handle the case when we receive a reply with the same reference
+        {Qref, Skey} ->
+            {ok, {Skey, Peer}}
+    after 10000 ->  % This should follow the last clause directly
+        io:format("Timeout: no response~n", []),
+        {error, timeout}
+    end.
 
+    
 
 
 init(Id, Peer) ->
