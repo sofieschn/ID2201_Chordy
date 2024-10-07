@@ -1,33 +1,17 @@
 -module(node1).
 -export([connect/2]).
 
+% starts a node without knowing any direct connections (the first node ex)
 start(Id) ->
     start(Id, nil).
 
+% starts a node with a known peer when started. Connecting to an already existing ring chord ring
 start(Id, Peer) ->
     % Start the timer and spawn a process to initialize the node
     timer:start(),
     spawn(fun() -> init(Id, Peer) end).
 
-connect(Id, nil) ->
-    % If there is no peer, we are the first node, so we are our own successor
-    {ok, {Id, self()}};
-
-connect(Id, Peer) ->
-    Qref = make_ref(),  % Generate a unique reference
-    Peer ! {key, Qref, self()},  % Send a message to the peer asking for its key
-    receive
-        % Handle the case when we receive a reply with the same reference
-        {Qref, Skey} ->
-            {ok, {Skey, Peer}}
-    after 10000 ->  % This should follow the last clause directly
-        io:format("Timeout: no response~n", []),
-        {error, timeout}
-    end.
-
-    
-
-
+% initializes the 
 init(Id, Peer) ->
     % Set the predecessor to nil since we don't know it yet
     Predecessor = nil,
@@ -39,6 +23,24 @@ init(Id, Peer) ->
     node(Id, Predecessor, Successor).
 
 
+% defines our successor 
+% if we are the only node we will be our own successor
+connect(Id, nil) ->
+    % If there is no peer, we are the first node, so we are our own successor
+    {ok, {Id, self()}};
+
+% tries connecting with an existing ring 
+connect(Id, Peer) ->
+    Qref = make_ref(),  % Generate a unique reference
+    Peer ! {key, Qref, self()},  % Send a message to the peer asking for its key
+    receive
+        % Handle the case when we receive a reply with the same reference
+        {Qref, Skey} ->
+            {ok, {Skey, Peer}}
+    after 10000 ->  % This should follow the last clause directly
+        io:format("Timeout: no response~n", []),
+        {error, timeout}
+    end.
 
 
 node(Id, Predecessor, Successor) ->
