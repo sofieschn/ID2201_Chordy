@@ -1,4 +1,4 @@
--module(node1).
+-module(node2).
 -export([start/1, start/2, node/3, stabilize/3, schedule_stabilize/0, stabilize/1, request/2, notify/3, create_probe/2, remove_probe/2, forward_probe/5]).
 -define(Timeout,1000).
 
