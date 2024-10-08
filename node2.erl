@@ -65,7 +65,7 @@ node(Id, Predecessor, Successor, Store) ->
             Peer ! {Qref, Id},
             node(Id, Predecessor, Successor, Store);
         {notify, New} ->
-            Pred = notify(New, Id, Predecessor),
+            Pred = notify(New, Id, Predecessor, Store),
             node(Id, Pred, Successor, Store);
         {request, Peer} ->
             % asks our pred
