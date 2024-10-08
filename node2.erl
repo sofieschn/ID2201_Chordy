@@ -15,20 +15,20 @@ start(Id, Peer) ->
     spawn(fun() -> init(Id, Peer) end).
 
  init(Id, Peer) ->
-    %% Set the predecessor to nil
-    Predecessor = nil,
+     %% Set the predecessor to nil
+     Predecessor = nil,
 
     % create an empty storage for the node
     Store = storage:create(),
  
-    %% Connect to our successor
-    {ok, Successor} = connect(Id, Peer),
+     %% Connect to our successor
+     {ok, Successor} = connect(Id, Peer),
  
      %% Schedule the stabilizing procedure; or rather making sure that we send a stabilize message to ourselves
-    schedule_stabilize(),
+     schedule_stabilize(),
  
      %% We then call the node/3 procedure that implements the message handling
-    node(Id, Predecessor, Successor, Store).
+     node(Id, Predecessor, Successor, Store).
  
     %% This function sets our successor pointer.
     %% We are the first node
@@ -65,7 +65,7 @@ node(Id, Predecessor, Successor, Store) ->
             Peer ! {Qref, Id},
             node(Id, Predecessor, Successor, Store);
         {notify, New} ->
-            Pred = notify(New, Id, Predecessor, Store),
+            Pred = notify(New, Id, Predecessor),
             node(Id, Pred, Successor, Store);
         {request, Peer} ->
             % asks our pred
@@ -73,8 +73,8 @@ node(Id, Predecessor, Successor, Store) ->
             node(Id, Predecessor, Successor, Store);
         {status, Pred} ->
             % A node will send a stabilize message to update our placement in the chord 
-            NewSuccessor = stabilize(Pred, Id, Successor),
-            node(Id, Predecessor, NewSuccessor, Store);
+            Succ = stabilize(Pred, Id, Successor),
+            node(Id, Predecessor, Successor, Store);
 
         % Trigger the probe process (initiate from a node)
     probe ->
@@ -130,7 +130,7 @@ stabilize(Pred, Id, Successor) ->
             io:format("Node ~p: Successor has no predecessor. Notifying successor about our existence~n", [Id]),
             % Inform the successor about our existence by sending it a notify message
             Spid ! {notify, {Id, self()}},
-            % Return the current Successor
+            % We don't change the successor in this case, so return the same Successor
             Successor;
         
         % Case 2: The predecessor is us (meaning we are already the predecessor)
@@ -144,12 +144,11 @@ stabilize(Pred, Id, Successor) ->
             io:format("Node ~p: Successor pointing to itself. Notifying successor.~n", [Id]),
             % Notify the successor about our existence (so we can insert ourselves into the ring)
             Spid ! {notify, {Id, self()}},
-            % Return the current Successor
+            % Return the current Successor, since we just notified it
             Successor;
         
         % Case 4: The successor has another node (Xkey, Xpid) as its predecessor
         {Xkey, Xpid} ->  
-            io:format("Node ~p: Adopting Xkey ~p as the new successor.~n", [Id, Xkey]),
             % Now we need to check if the predecessor's key (Xkey) is between our key (Id) and the successor's key (Skey)
             case key:between(Xkey, Id, Skey) of
                 % If Xkey is between our key and Skey, we need to adopt Xkey as the new successor
@@ -167,7 +166,6 @@ stabilize(Pred, Id, Successor) ->
                     Successor
             end
     end.
-
 
 
 % schedule_stabilize/0 sets up a timer to call the stabilize procedure every 1000 ms or changed for faster/slower upd of ring
