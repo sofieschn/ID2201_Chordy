@@ -1,7 +1,5 @@
 -module(node2).
 -export([start/1, start/2, node/4, stabilize/3, schedule_stabilize/0, stabilize/1, request/2, notify/4, create_probe/2, remove_probe/2, forward_probe/5]).
--define(Timeout,1000).
-
 
 
 % starts a node without knowing any direct connections (the first node ex)
