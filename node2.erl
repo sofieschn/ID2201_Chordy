@@ -1,5 +1,5 @@
 -module(node2).
--export([start/1, start/2, node/3, stabilize/3, schedule_stabilize/0, stabilize/1, request/2, notify/3, create_probe/2, remove_probe/2, forward_probe/5]).
+-export([start/1, start/2, node/4, stabilize/3, schedule_stabilize/0, stabilize/1, request/2, notify/4, create_probe/2, remove_probe/2, forward_probe/5]).
 -define(Timeout,1000).
 
 
@@ -17,6 +17,9 @@ start(Id, Peer) ->
  init(Id, Peer) ->
      %% Set the predecessor to nil
      Predecessor = nil,
+
+    % create an empty storage for the node
+    Store = storage:create(),
  
      %% Connect to our successor
      {ok, Successor} = connect(Id, Peer),
@@ -25,7 +28,7 @@ start(Id, Peer) ->
      schedule_stabilize(),
  
      %% We then call the node/3 procedure that implements the message handling
-     node(Id, Predecessor, Successor).
+     node(Id, Predecessor, Successor, Store).
  
     %% This function sets our successor pointer.
     %% We are the first node
@@ -50,52 +53,66 @@ connect(Id, Peer) ->
 
 
 % the properties of a node in a chord ring has an ID, a predecessor (node that comes before it), and a successor (node that comes after it )
-node(Id, Predecessor, Successor) ->
+node(Id, Predecessor, Successor, Store) ->
     receive
         % stabilize messages tell every node to check that they are in the right order in the chord
         stabilize ->
             % call stabilize function
             stabilize(Successor),
             % recursive call with the new 
-            node(Id, Predecessor, Successor);
+            node(Id, Predecessor, Successor, Store);
         {key, Qref, Peer} ->
             Peer ! {Qref, Id},
-            node(Id, Predecessor, Successor);
+            node(Id, Predecessor, Successor, Store);
         {notify, New} ->
             Pred = notify(New, Id, Predecessor),
-            node(Id, Pred, Successor);
+            node(Id, Pred, Successor, Store);
         {request, Peer} ->
             % asks our pred
             request(Peer, Predecessor),
-            node(Id, Predecessor, Successor);
+            node(Id, Predecessor, Successor, Store);
         {status, Pred} ->
             % A node will send a stabilize message to update our placement in the chord 
             Succ = stabilize(Pred, Id, Successor),
-            node(Id, Predecessor, Succ);
+            node(Id, Predecessor, Successor, Store);
 
         % Trigger the probe process (initiate from a node)
     probe ->
         io:format("Node ~p: Creating probe~n", [Id]),
         create_probe(Id, Successor),
-        node(Id, Predecessor, Successor);
+        node(Id, Predecessor, Successor, Store);
 
     % If the probe reaches the originating node (Id matches)
     {probe, Id, Nodes, T} ->
         io:format("Node ~p: Probe returned! Nodes visited: ~p~n", [Id, Nodes]),
         remove_probe(T, Nodes),
-        node(Id, Predecessor, Successor);
+        node(Id, Predecessor, Successor, Store);
 
     % If the probe needs to be forwarded to the successor
     {probe, Ref, Nodes, T} ->
         io:format("Node ~p: Forwarding probe to successor. Probe details: Ref=~p, Nodes=~p, Time=~p~n", 
                   [Id, Ref, Nodes, T]),
         forward_probe(Ref, T, Nodes, Id, Successor),
-        node(Id, Predecessor, Successor);
+        node(Id, Predecessor, Successor, Store);
+
+    
+    {add, Key, Value, Qref, Client} ->
+        UpdatedStore = add(Key, Value, Qref, Client, Id, Predecessor, Successor, Store),
+        node(Id, Predecessor, Successor, UpdatedStore);
+
+    {lookup, Key, Qref, Client} ->
+        lookup(Key, Qref, Client, Id, Predecessor, Successor, Store),
+        node(Id, Predecessor, Successor, Store);
+
+    {handover, Elements} ->
+        Merged = storage:merge(Store, Elements),
+        node(Id, Predecessor, Successor, Merged);
+
 
     % Catch-all clause to handle unexpected messages
     _Other ->
         io:format("Node ~p: Received unexpected message: ~p~n", [Id, _Other]),
-        node(Id, Predecessor, Successor)
+        node(Id, Predecessor, Successor, Store)
 end.
 
 
@@ -173,27 +190,26 @@ request(Peer, Predecessor) ->
 end.
 
 
-notify({Nkey, Npid}, Id, Predecessor) ->
+notify({Nkey, Npid}, Id, Predecessor, Store) ->
     case Predecessor of
-        % If there is no predecessor, accept the new node as the predecessor
         nil ->
-            %% Npid ! {accepted, Id},
-            {Nkey, Npid};
-        
-        % If the predecessor is already set, check if the new node should be the predecessor
+            % No predecessor yet, hand over part of the store to the new node
+            Keep = handover(Id, Store, Nkey, Npid),
+            {{Nkey, Npid}, Keep};  % Update predecessor to the new node
+
         {Pkey, _} ->
+            % Check if the new node should be our predecessor
             case key:between(Nkey, Pkey, Id) of
-                % If the new node's key fits between the predecessor and us, accept it as the new predecessor
                 true ->
-                    % Npid ! {accepted, Id},
-                    {Nkey, Npid};
-                
-                % Otherwise, keep the current predecessor and inform the new node it was not accepted
+                    % New node should be the predecessor, hand over part of the store
+                    Keep = handover(Id, Store, Nkey, Npid),
+                    {{Nkey, Npid}, Keep};  % Update predecessor and return updated store
                 false ->
-                    % Npid ! {rejected, Id},
-                    Predecessor
+                    % New node shouldn't be the predecessor, keep the current predecessor
+                    {Predecessor, Store}
             end
     end.
+
 
 
 %% Probe - verification of the chord ring connection
@@ -220,3 +236,44 @@ forward_probe(Ref, T, Nodes, Id, Successor) ->
     {_, Spid} = Successor,  % Get the successor's process ID
     NewNodes = [Id | Nodes],  % Add the current node to the list of visited nodes
     Spid ! {probe, Ref, NewNodes, T}.  % Forward the probe to the successor.
+
+
+%% the add and lookup functions to access the storage 
+
+add(Key, Value, Qref, Client, Id, {Pkey, _}, {_, Spid}, Store) ->
+    % Check if the current node is responsible for the key
+    case key:between(Key, Pkey, Id) of
+        true ->
+            % If the node is responsible, add the key-value pair to the local store
+            UpdatedStore = storage:add(Key, Value, Store),
+            % Send an acknowledgment to the client
+            Client ! {Qref, ok},
+            UpdatedStore;  % Return the updated store
+        false ->
+            % If the node is not responsible, forward the request to the successor
+            Spid ! {add, Key, Value, Qref, Client},
+            Store  % Return the current store without changes
+    end.
+
+lookup(Key, Qref, Client, Id, {Pkey, _}, {_, Spid}, Store) ->
+    % Check if the current node is responsible for the key
+    case key:between(Key, Pkey, Id) of
+        true ->
+            % If the node is responsible, lookup the key in the local store
+            Result = storage:lookup(Key, Store),
+            % Send the result back to the client
+            Client ! {Qref, Result};
+        false ->
+            % If the node is not responsible, forward the request to the successor
+            Spid ! {lookup, Key, Qref, Client}
+    end.
+
+handover(Id, Store, Nkey, Npid) ->
+    % Split the store, keeping keys between Id and Nkey
+    {Keep, Rest} = storage:split(Id, Nkey, Store),
+    % Send the key-value pairs that should be handed over to the new predecessor
+    Npid ! {handover, Rest},
+    Keep.  % Return the part of the store that the current node should keep
+
+
+
