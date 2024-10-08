@@ -1,10 +1,8 @@
 -module(key).
 -export([generate/0, between/3]).
 
--define(MAX, 1000).
-
 generate() ->
-    random:uniform(?MAX).
+    random:uniform(1000).
 
 between(Key, From, To) when From < To ->
     From < Key andalso Key =< To;
