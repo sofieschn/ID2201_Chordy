@@ -1,57 +1,37 @@
 -module(test_node2).
--export([start_test/4, generate_keys/1, add_keys/3, lookup_keys/2]).
+-export([start_test/2, add_elements/4, lookup_elements/3]).
 
-% Start the test procedure. 
-% It takes the NodePid (to communicate with a node), the number of keys (NumKeys),
-% the ClientPid (self or another process acting as the client), and the action (add or lookup).
-start_test(NodePid, NumKeys, ClientPid, Action) ->
-    Keys = generate_keys(NumKeys),
-    case Action of
-        add ->
-            add_keys(NodePid, Keys, ClientPid);
-        lookup ->
-            lookup_keys(NodePid, Keys)
-    end.
+% Start the test procedure by adding and then looking up key-value pairs.
+start_test(Node, NumElements) ->
+    % Add key-value pairs to the distributed store and keep track of the keys
+    Keys = add_elements(Node, NumElements, 1, []),
+    
+    % Perform lookups on all the added keys and measure the time it takes
+    {ok, StartTime} = timer:tc(?MODULE, lookup_elements, [Node, Keys, NumElements]),
+    io:format("Lookup completed in ~p microseconds~n", [StartTime]).
 
-% Function to generate a list of random keys.
-generate_keys(Num) ->
-    [key:generate() || _ <- lists:seq(1, Num)].
+% Add random key-value pairs to the node
+add_elements(Node, NumElements, Current, Keys) when Current =< NumElements ->
+    Key = random:uniform(100000),  % Generate a random key
+    Value = "Value-" ++ integer_to_list(Key),  % Generate a value based on the key using string concatenation
+    Ref = make_ref(),  % Create a unique reference for the request
+    Node ! {add, Key, Value, Ref, self()},  % Send add request to the node
+    receive
+        {Ref, ok} ->  % Wait for the node to acknowledge the add operation
+            io:format("Added key ~p with value ~p~n", [Key, Value]),
+            add_elements(Node, NumElements, Current + 1, [Key | Keys])
+    end;
+add_elements(_, NumElements, Current, Keys) when Current > NumElements ->
+    Keys.  % Return the list of added keys
 
-% Function to add key-value pairs to the system.
-% It takes NodePid (to communicate with a node), the list of Keys, and ClientPid (client process).
-add_keys(NodePid, Keys, ClientPid) ->
-    StartTime = erlang:system_time(microsecond),
-    lists:foreach(fun(Key) ->
-        Value = <<(random:uniform(1000)):16>>,
-        Qref = make_ref(),
-        NodePid ! {add, Key, Value, Qref, ClientPid},
-        receive
-            {Qref, ok} ->
-                io:format("Key ~p added successfully~n", [Key])
-        after 5000 ->
-            io:format("Timeout adding key ~p~n", [Key])
-        end
-    end, Keys),
-    EndTime = erlang:system_time(microsecond),
-    TotalTime = EndTime - StartTime,
-    io:format("Added ~p keys in ~p microseconds~n", [length(Keys), TotalTime]).
-
-% Function to look up key-value pairs from the system.
-% It takes NodePid (to communicate with a node) and the list of Keys.
-lookup_keys(NodePid, Keys) ->
-    StartTime = erlang:system_time(microsecond),
-    lists:foreach(fun(Key) ->
-        Qref = make_ref(),
-        NodePid ! {lookup, Key, Qref, self()},
-        receive
-            {Qref, {Key, Value}} ->
-                io:format("Lookup successful for Key ~p: Value ~p~n", [Key, Value]);
-            {Qref, false} ->
-                io:format("Lookup failed for Key ~p~n", [Key])
-        after 5000 ->
-            io:format("Timeout during lookup for Key ~p~n", [Key])
-        end
-    end, Keys),
-    EndTime = erlang:system_time(microsecond),
-    TotalTime = EndTime - StartTime,
-    io:format("Lookup of ~p keys completed in ~p microseconds~n", [length(Keys), TotalTime]).
+% Lookup all keys and measure the time
+lookup_elements(Node, [Key | Rest], TotalKeys) ->
+    Ref = make_ref(),  % Create a unique reference for the lookup
+    Node ! {lookup, Key, Ref, self()},  % Send lookup request to the node
+    receive
+        {Ref, Value} ->  % Wait for the node to return the result
+            io:format("Looked up key ~p and found value ~p~n", [Key, Value]),
+            lookup_elements(Node, Rest, TotalKeys)
+    end;
+lookup_elements(_, [], _) ->
+    ok.  % All lookups completed
