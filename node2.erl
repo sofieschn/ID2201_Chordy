@@ -55,7 +55,7 @@ node(Id, Predecessor, Successor, Store) ->
         % Stabilize messages tell every node to check that they are in the right order in the Chord
         stabilize ->
             stabilize(Successor),
-            io:format("The successor sent it ~p~n", [Successor]),
+            %io:format("The successor sent it ~p~n", [Successor]),
             node(Id, Predecessor, Successor, Store);
 
         % A peer needs to know our key
@@ -154,18 +154,13 @@ stabilize(Pred, Id, Successor) ->
 
 % Schedule the stabilize procedure to run at regular intervals
 schedule_stabilize() ->
-    timer:send_interval(5000, self(), stabilize).
+    timer:send_interval(1000, self(), stabilize).
 
 % Stabilize by requesting the successor's predecessor
-stabilize({Skey, Spid}) when is_pid(Spid) ->
+stabilize({Skey, Spid}) ->
     % Handle valid process ID case
-    Spid ! {request, self()};
-stabilize({{Skey, Spid}, _}) when is_pid(Spid) ->
-    % Handle case where Successor is nested inside another tuple
-    Spid ! {request, self()};
-stabilize(_) ->
-    io:format("Error: Invalid Successor~n"),
-    error(invalid_successor).
+    Spid ! {request, self()}.
+
 
 
 
