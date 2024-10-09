@@ -31,22 +31,17 @@ init(Id, Peer) ->
 % This function sets our successor pointer.
 % We are the first node.
 connect(Id, nil) ->
-    io:format("Node ~p: No peer found, initializing as own successor~n", [Id]),
     {ok, {Id, self()}};
-    % Make sure this part returns a valid PID (self()) when no peer exists.
-
-connect(Id, Peer) ->
+connect(_Id, Peer) ->
     Qref = make_ref(),
-    io:format("Node ~p: Attempting to connect to peer ~p with ref ~p~n", [Id, Peer, Qref]),
     Peer ! {key, Qref, self()},
     receive
         {Qref, Skey} ->
-            io:format("Node ~p: Connected to peer. Successor key is ~p~n", [Id, Skey]),
-            {ok, {Skey, Peer}}  % Make sure that Peer (which is a PID) is valid.
-        after 10000 ->
-            io:format("Node ~p: Timeout - no response from peer ~p~n", [Id, Peer]),
-            {error, timeout}
+            {ok, {Skey, Peer}}
+    after 10000 ->
+        io:format("Timeout: no response!~n")
     end.
+
 
 
 % The properties of a node in a Chord ring: an ID, a predecessor (previous node), and a successor (next node)
@@ -110,6 +105,10 @@ node(Id, Predecessor, Successor, Store) ->
         {handover, Elements} ->
             Merged = storage:merge(Store, Elements),
             node(Id, Predecessor, Successor, Merged);
+
+        status ->
+            io:format("NodeID= ~w   Pred=~w Succ=~w  Storage: ~w~n", [Id,Predecessor,Successor, Store]),
+            node(Id, Predecessor, Successor, Store);
 
         % Catch-all clause to handle unexpected messages
         _Other ->
